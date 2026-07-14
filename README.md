@@ -225,7 +225,7 @@ The first version is intentionally narrow: it compares long-only and long/short 
 
 ## Running
 
-From `C:\rcode\optimal_options`:
+From the repository root:
 
 ```powershell
 Rscript .\xoptimize_options_quick.r
