@@ -105,7 +105,7 @@ Currently supported:
 
 For `expected_utility`, `risk_aversion_utility` may be a vector, and the program runs one optimization per value.
 
-`dependency_penalty` estimates a conditional-payout dependency matrix from the terminal payoff scenarios, repairs it to be positive semidefinite by flooring eigenvalues, and maximizes edge minus `risk_aversion * w' Lambda w`. This follows the idea in `portfolio_optimisation_with_options.pdf`: options whose positive payoffs tend to occur in the same scenarios are penalized as dependent.
+`dependency_penalty` estimates a conditional-payout dependency matrix from the terminal payoff scenarios, repairs it to be positive semidefinite by flooring eigenvalues, and maximizes edge minus `risk_aversion * w' Lambda w`. This follows the idea in "Portfolio Optimisation with Options" by Jonathan Raimana Chan et al.: options whose positive payoffs tend to occur in the same scenarios are penalized as dependent.
 
 ## Constraints
 
