@@ -1,6 +1,6 @@
 # Optimal Options
 
-R code for optimizing option portfolios under multiple objectives and constraints. The main driver is single-underlying and single-expiration; prototype drivers cover named structures, multiple tenors, and multiple stocks.
+R code by Codex for optimizing option portfolios under multiple objectives and constraints. The main driver is single-underlying and single-expiration; prototype drivers cover named structures, multiple tenors, and multiple stocks.
 
 ## Files
 
