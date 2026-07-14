@@ -15,7 +15,7 @@ R code for optimizing option portfolios under multiple objectives and constraint
 
 ## Model
 
-The current model assumes one underlying stock and one option expiration. The terminal stock price model is selected with `terminal_model`:
+The main `xoptimize_options.r` driver assumes one underlying stock and one option expiration. Prototype drivers extend the workflow to named structures, multiple tenors, and multiple stocks. In the main driver, the terminal stock price model is selected with `terminal_model`:
 
 - `lognormal`: default GBM-style terminal stock price.
 - `logistic`: logistic distribution for log returns, with scale chosen to match `realized_sigma`.
