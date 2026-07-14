@@ -149,6 +149,222 @@ apply_terminal_floor <- function(S, terminal_floor = NA_real_) {
   S
 }
 
+scaled_t_density <- function(x, df, scale) {
+  dt(x / scale, df = df) / scale
+}
+
+scaled_t_cdf <- function(x, df, scale) {
+  pt(x / scale, df = df)
+}
+
+scaled_t_log_density_slope <- function(x, df, scale) {
+  -(df + 1.0) * x / (df * scale^2 + x^2)
+}
+
+integrate_finite <- function(f, lower, upper, rel.tol = 1e-10) {
+  if (upper <= lower) {
+    return(0.0)
+  }
+  safe_f <- function(x) {
+    y <- f(x)
+    y[!is.finite(y)] <- 0.0
+    y
+  }
+  integrate(safe_f, lower = lower, upper = upper, rel.tol = rel.tol)$value
+}
+
+student_t_tail_distribution_moments <- function(df,
+                                                scale,
+                                                cutoff,
+                                                treatment = "cap_spike",
+                                                exp_tail_lambda = 1.5,
+                                                gaussian_tail_lambda = 1.0,
+                                                rel.tol = 1e-10) {
+  treatment <- match.arg(
+    treatment,
+    c("cap_spike", "renormalized", "exp_tail", "gaussian_tail")
+  )
+  base_density <- function(x) scaled_t_density(x, df, scale)
+  cutoff_density <- base_density(cutoff)
+  left_mass <- scaled_t_cdf(cutoff, df, scale)
+  left_exp <- integrate_finite(
+    function(x) exp(x) * base_density(x),
+    -Inf,
+    cutoff,
+    rel.tol = rel.tol
+  )
+
+  if (treatment == "cap_spike") {
+    right_mass <- 1.0 - left_mass
+    return(list(
+      treatment = treatment,
+      normalization = 1.0,
+      exp_moment = left_exp + exp(cutoff) * right_mass,
+      atom_x = cutoff,
+      atom_mass = right_mass,
+      density = base_density,
+      support_upper = cutoff
+    ))
+  }
+
+  if (treatment == "renormalized") {
+    return(list(
+      treatment = treatment,
+      normalization = left_mass,
+      exp_moment = left_exp / left_mass,
+      atom_x = NA_real_,
+      atom_mass = 0.0,
+      density = function(x) ifelse(x <= cutoff, base_density(x) / left_mass, 0.0),
+      support_upper = cutoff
+    ))
+  }
+
+  if (treatment == "exp_tail") {
+    if (exp_tail_lambda <= 1.0) {
+      stop("exp_tail_lambda must be greater than 1 for finite call prices")
+    }
+    right_mass <- cutoff_density / exp_tail_lambda
+    normalization <- left_mass + right_mass
+    right_exp <- cutoff_density * exp(cutoff) / (exp_tail_lambda - 1.0)
+    return(list(
+      treatment = treatment,
+      normalization = normalization,
+      exp_moment = (left_exp + right_exp) / normalization,
+      atom_x = NA_real_,
+      atom_mass = 0.0,
+      density = function(x) {
+        ifelse(
+          x <= cutoff,
+          base_density(x) / normalization,
+          cutoff_density * exp(-exp_tail_lambda * (x - cutoff)) / normalization
+        )
+      },
+      support_upper = Inf
+    ))
+  }
+
+  slope <- scaled_t_log_density_slope(cutoff, df, scale)
+  right_density <- function(x) {
+    y <- x - cutoff
+    cutoff_density * exp(slope * y - gaussian_tail_lambda * y^2)
+  }
+  right_mass <- integrate_finite(right_density, cutoff, Inf, rel.tol = rel.tol)
+  right_exp <- integrate_finite(
+    function(x) exp(x) * right_density(x),
+    cutoff,
+    Inf,
+    rel.tol = rel.tol
+  )
+  normalization <- left_mass + right_mass
+  list(
+    treatment = treatment,
+    normalization = normalization,
+    exp_moment = (left_exp + right_exp) / normalization,
+    atom_x = NA_real_,
+    atom_mass = 0.0,
+    density = function(x) {
+      ifelse(x <= cutoff, base_density(x), right_density(x)) / normalization
+    },
+    support_upper = Inf
+  )
+}
+
+student_t_tail_call_price <- function(S0 = 100,
+                                      K = S0,
+                                      r = 0.03,
+                                      q = 0.0,
+                                      T = 1.0,
+                                      realized_sigma = 0.20,
+                                      df = 5.0,
+                                      cutoff = 0.5,
+                                      treatment = "cap_spike",
+                                      exp_tail_lambda = 1.5,
+                                      gaussian_tail_lambda = 1.0,
+                                      rel.tol = 1e-10) {
+  if (df <= 2.0) {
+    stop("df must be greater than 2 so the untruncated t variance exists")
+  }
+  scale <- realized_sigma * sqrt(T) * sqrt((df - 2.0) / df)
+  dist <- student_t_tail_distribution_moments(
+    df = df,
+    scale = scale,
+    cutoff = cutoff,
+    treatment = treatment,
+    exp_tail_lambda = exp_tail_lambda,
+    gaussian_tail_lambda = gaussian_tail_lambda,
+    rel.tol = rel.tol
+  )
+  forward <- S0 * exp((r - q) * T)
+  shift <- log(forward / S0) - log(dist$exp_moment)
+  threshold <- log(K / S0) - shift
+
+  prob_above <- integrate_finite(dist$density, threshold, dist$support_upper, rel.tol)
+  exp_above <- integrate_finite(
+    function(x) exp(x) * dist$density(x),
+    threshold,
+    dist$support_upper,
+    rel.tol
+  )
+  if (is.finite(dist$atom_x) && dist$atom_mass > 0.0 && dist$atom_x > threshold) {
+    prob_above <- prob_above + dist$atom_mass
+    exp_above <- exp_above + exp(dist$atom_x) * dist$atom_mass
+  }
+
+  undiscounted <- S0 * exp(shift) * exp_above - K * prob_above
+  data.frame(
+    treatment = treatment,
+    cutoff = cutoff,
+    exp_tail_lambda = if (treatment == "exp_tail") exp_tail_lambda else NA_real_,
+    gaussian_tail_lambda = if (treatment == "gaussian_tail") gaussian_tail_lambda else NA_real_,
+    recenter_shift = shift,
+    exp_moment_before_shift = dist$exp_moment,
+    normalization = dist$normalization,
+    atom_mass = dist$atom_mass,
+    tail_prob_after_recenter = prob_above,
+    forward_check = S0 * exp(shift) * dist$exp_moment,
+    call_price = exp(-r * T) * undiscounted
+  )
+}
+
+student_t_tail_call_price_table <- function(S0 = 100,
+                                            K = S0,
+                                            r = 0.03,
+                                            q = 0.0,
+                                            T = 1.0,
+                                            realized_sigma = 0.20,
+                                            df = 5.0,
+                                            cutoffs = seq(0.2, 1.2, by = 0.1),
+                                            exp_tail_lambdas = c(1.25, 1.5, 2.0),
+                                            gaussian_tail_lambdas = c(0.5, 1.0, 2.0),
+                                            rel.tol = 1e-10) {
+  rows <- list()
+  for (cutoff in cutoffs) {
+    rows[[length(rows) + 1L]] <- student_t_tail_call_price(
+      S0, K, r, q, T, realized_sigma, df, cutoff, "cap_spike",
+      rel.tol = rel.tol
+    )
+    rows[[length(rows) + 1L]] <- student_t_tail_call_price(
+      S0, K, r, q, T, realized_sigma, df, cutoff, "renormalized",
+      rel.tol = rel.tol
+    )
+    for (lambda in exp_tail_lambdas) {
+      rows[[length(rows) + 1L]] <- student_t_tail_call_price(
+        S0, K, r, q, T, realized_sigma, df, cutoff, "exp_tail",
+        exp_tail_lambda = lambda,
+        rel.tol = rel.tol
+      )
+    }
+    for (lambda in gaussian_tail_lambdas) {
+      rows[[length(rows) + 1L]] <- student_t_tail_call_price(
+        S0, K, r, q, T, realized_sigma, df, cutoff, "gaussian_tail",
+        gaussian_tail_lambda = lambda,
+        rel.tol = rel.tol
+      )
+    }
+  }
+  do.call(rbind, rows)
+}
+
 normalize_mixture_weights <- function(weights) {
   if (any(!is.finite(weights)) || any(weights < 0.0) || sum(weights) <= 0.0) {
     stop("mixture_weights must be nonnegative finite values with positive sum")
