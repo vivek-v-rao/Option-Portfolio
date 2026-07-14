@@ -384,9 +384,7 @@ to write a three-panel PNG report for one selected run. The report shows market 
 Rscript -e "option_scenario <- 'crash_mixture'; option_config_overrides <- list(write_portfolio_plot=TRUE, portfolio_plot_file='crash_mixture_plot.png', plot_constraint_mode='long_only', plot_objective='mean_variance'); source('xoptimize_options.r')"
 ```
 
-## Development Notes
-
-Keep reusable functions in `option_stats.r`; keep `xoptimize_options.r` focused on parameter setup and printing.
+## Configuration Notes
 
 Scenario inputs are collected in the `config` list near the top of `xoptimize_options.r`. Alternate drivers can set `option_scenario` and/or `option_config_overrides` before sourcing `xoptimize_options.r`; `xoptimize_options_quick.r` uses this path for smoke tests.
 
@@ -397,18 +395,3 @@ options(option_stats_use_cpp_kernels = TRUE)
 ```
 
 For constrained SLSQP runs, `constrained_optimizer_max_starts` can reduce repeated starts for Sharpe and mean-variance objectives. The nonnegative-terminal `dependency_penalty` objective currently uses the base-R constrained optimizer path. Expected utility uses the separate `nonnegative_expected_utility_max_starts` setting.
-
-Before committing changes, run:
-
-```powershell
-Rscript .\tests\test_config_quick.r
-Rscript .\xoptimize_options_quick.r
-```
-
-The config regression test runs the JSON driver path, writes test CSVs under `outputs/tests/`, and checks summary/portfolio schemas plus basic feasibility invariants.
-
-For changes touching optimizer dispatch, payoff evaluation, or constraints, also run:
-
-```powershell
-Rscript .\xoptimize_options.r
-```
